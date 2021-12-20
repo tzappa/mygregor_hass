@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 from typing import Any, Dict
-from homeassistant.components.mygregor_hass.mygregorpy import MyGregorApi
+from .mygregorpy import MyGregorApi
 import voluptuous as vol
 
 # Import the device class from the component that you want to support
