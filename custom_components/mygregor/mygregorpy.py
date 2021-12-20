@@ -13,13 +13,18 @@ _LOGGER = logging.getLogger(__name__)
 class MyGregorDevice:
     """MyGregor Device interface."""
 
-    def __init__(self, unique_id: int, device_type: str, name: str, mac: str) -> None:
+    def __init__(
+        self, unique_id: int, device_type: str, name: str, mac: str, model: str
+    ) -> None:
         """MyGregorDevice constructor. Set all required properties."""
         self._id = unique_id
         self._type = device_type
         self._name = name
         self._mac = mac
+        self._model = model
         self._sensors = {}
+        self._room_name = None
+        self._room_id = None
         # typical sensors for WiFi devices
         self.enable_sensor("rssi", "dB", "RSSI")
         # not exactly sensors but attributes
@@ -48,6 +53,11 @@ class MyGregorDevice:
         return self._type
 
     @property
+    def model(self):
+        """Gets device model."""
+        return self._model
+
+    @property
     def state(self):
         """Gets device state - online or offline. None value is also possible for "N/A"."""
         return self.get_value("state")
@@ -66,6 +76,21 @@ class MyGregorDevice:
     def software_version(self):
         """Get software version"""
         return self.get_value("sw_version")
+
+    @property
+    def room_id(self):
+        """Return room ID."""
+        return self._room_id
+
+    @property
+    def room_name(self):
+        """Return room name."""
+        return self._room_name
+
+    def set_room(self, room_id, room_name):
+        """Set's room info."""
+        self._room_id = room_id
+        self._room_name = room_name
 
     def enable_sensor(self, sensor: str, measurement: str, title=None):
         """Enable some sensors."""
@@ -106,9 +131,9 @@ class MyGregorDevice:
 class MyGregorStation(MyGregorDevice):
     """MyGregor Station interface."""
 
-    def __init__(self, unique_id: int, name: str, mac: str) -> None:
+    def __init__(self, unique_id: int, name: str, mac: str, model: str = "") -> None:
         """Constructor needs the name of the station."""
-        super().__init__(unique_id, "Station", name, mac=mac)
+        super().__init__(unique_id, "Station", name, mac=mac, model=model)
         self.enable_sensor("co2", "ppm", "CO₂")
         self.enable_sensor("temperature", "℃", "Temperature")
         self.enable_sensor("humidity", "%", "Humidity")
@@ -150,11 +175,13 @@ class MyGregorStation(MyGregorDevice):
 class MyGregorDrive(MyGregorDevice):
     """MyGregor Drive interface."""
 
-    def __init__(self, unique_id: int, name: str, mac: str) -> None:
-        super().__init__(unique_id, "Drive", name, mac=mac)
+    def __init__(self, unique_id: int, name: str, mac: str, model: str = "") -> None:
+        super().__init__(unique_id, "Drive", name, mac=mac, model=model)
         self.enable_sensor("noise", "dBA", "Noise")
         self.enable_sensor("voltage", "V", "Battery voltage")
         self.enable_sensor("battery_level", "%", "Battery level")
+        self.enable_sensor("position", "%", "Position")
+        self.enable_sensor("power_profile", "", "Power Profile")
 
     @property
     def noise(self):
@@ -170,6 +197,16 @@ class MyGregorDrive(MyGregorDevice):
     def battery_level(self):
         """Gets the battery level sensor value."""
         return self.get_value("battery_level")
+
+    @property
+    def position(self):
+        """Gets the drive position (from 0-closed to 100-opened)."""
+        return self.get_value("position")
+
+    @property
+    def power_profile(self):
+        """Gets the power profile ("normal", "eco", "battery")."""
+        return self.get_value("power_profile")
 
 
 class MyGregorApi:
@@ -237,12 +274,15 @@ class MyGregorApi:
         response = self._exec_request("GET", "/v2/accounts/me")
         return response
 
-    def get_devices(self, include_data: bool = False):
+    def get_devices(self, include_data: bool = False, include_room: bool = False):
         """Returns list of all user's devices."""
+
+        include = []
         if include_data:
-            response = self._exec_request("GET", "/v2/devices?include=device_data")
-        else:
-            response = self._exec_request("GET", "/v2/devices")
+            include += ["device_data"]
+        if include_room:
+            include += ["room_data"]
+        response = self._exec_request("GET", "/v2/devices?include=" + ",".join(include))
 
         devices = []
         for device in response["devices"]:
@@ -250,23 +290,44 @@ class MyGregorApi:
 
         return devices
 
-    def get_device(self, device_id: int):
+    def get_device(
+        self, device_id: int, include_data: bool = True, include_room: bool = False
+    ):
         """Returns device data."""
+
+        include = []
+        if include_data:
+            include += ["device_data"]
+        if include_room:
+            include += ["room_data"]
         response = self._exec_request(
-            "GET", f"/v2/devices/{device_id}?include=device_data"
+            "GET", f"/v2/devices/{device_id}?include=" + ",".join(include)
         )
 
         return self._set_device(response)
 
     def _set_device(self, data) -> MyGregorDevice:
         if data["type"] == "Station":
-            device = MyGregorStation(data["id"], data["name"], data["mac"])
+            device = MyGregorStation(
+                data["id"], data["name"], data["mac"], str(data["model"])
+            )
         elif data["type"] == "Drive":
-            device = MyGregorDrive(data["id"], data["name"], data["mac"])
+            device = MyGregorDrive(
+                data["id"],
+                data["name"],
+                data["mac"],
+                str(data["model"]),
+            )
         if "hardware_version" in data:
             device.set_value("hw_version", data["hardware_version"])
         if "software_version" in data:
             device.set_value("sw_version", data["software_version"])
+        if "room" in data:
+            device.set_room(data["room"]["id"], data["room"]["name"])
+        if "power_profile" in data:
+            device.set_value("power_profile", data["power_profile"])
+        if "position" in data:
+            device.set_value("position", data["position"])
         if "status" in data:
             device.set_value("state", data["status"])
         else:
