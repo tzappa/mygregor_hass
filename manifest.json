@@ -1,0 +1,10 @@
+{
+    "domain": "mygregor_hass",
+    "name": "MyGregor",
+    "documentation": "https://github.com/tzappa/mygregor_hass",
+    "dependencies": [],
+    "codeowners": ["@tzappa"],
+    "requirements": [],
+    "iot_class": "local_polling",
+    "version": "0.1.0"
+}
