@@ -1,1 +1,0 @@
-"""MyGregor Home Assistant Integration."""
