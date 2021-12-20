@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from homeassistant.components.mygregor_hass.mygregorpy import (
+from .mygregorpy import (
     MyGregorApi,
     UnauthorizedException,
 )
