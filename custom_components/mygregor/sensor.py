@@ -14,6 +14,16 @@ from homeassistant.components.sensor import (
     PLATFORM_SCHEMA,
     SensorEntity,
 )
+from homeassistant.components.cover import (
+    CoverEntity,
+    DEVICE_CLASS_WINDOW,
+    SUPPORT_OPEN,
+    SUPPORT_CLOSE,
+    # STATE_OPEN,
+    STATE_CLOSED,
+    STATE_OPENING,
+    STATE_CLOSING,
+)
 
 # from homeassistant.helpers.entity import Entity
 from homeassistant.const import (
@@ -32,6 +42,7 @@ from homeassistant.const import (
     DEVICE_CLASS_SIGNAL_STRENGTH,
     ENTITY_CATEGORY_DIAGNOSTIC,
 )
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from .const import (
@@ -65,11 +76,11 @@ async def async_setup_entry(
     hub = MyGregorApi()
     hub.set_access_token(access_token)
 
-    devices = await hass.async_add_executor_job(hub.get_devices, True)
+    devices = await hass.async_add_executor_job(hub.get_devices, True, True)
     sensors = []
     for device in devices:
         if device.device_type == "Station":
-            station = MyGDevice(device, hub)
+            station = MyGregorStation(device, hub)
             sensors += [station]
 
             sensor = MyGRSSISensor(
@@ -121,7 +132,7 @@ async def async_setup_entry(
             sensors += [sensor]
 
         elif device.device_type == "Drive":
-            drive = MyGDevice(device, hub)
+            drive = MyGregorDrive(device, hub)
             sensors += [drive]
 
             sensor = MyGRSSISensor(
@@ -153,10 +164,6 @@ class MyGSensor(SensorEntity):
         self._value = value
         self._id = "MyGregor_" + mac.replace(":", "") + "_" + device_class
         self._available = True
-        # self._attr_native_unit_of_measurement = TEMP_CELSIUS
-        # self.update()
-        # if "sensors_raw" in device and "temperature" in device["sensors_raw"]:
-        #     self._state = device["sensors_raw"]["temperature"]
 
     @property
     def unique_id(self):
@@ -367,8 +374,8 @@ class MyGBatteryLevelSensor(MyGSensor):
         return ENTITY_CATEGORY_DIAGNOSTIC
 
 
-class MyGDevice(SensorEntity):
-    """Representation of a MyGregor device."""
+class MyGregorStation(SensorEntity):
+    """Representation of a MyGregor station device."""
 
     def __init__(self, device, myg) -> None:
         """Initialize an Device."""
@@ -387,10 +394,6 @@ class MyGDevice(SensorEntity):
             self._available = False
         self.extra_attrs: Dict[str, Any] = {}
         self.sensors: Dict[str, Any] = {}
-        # self._attr_native_unit_of_measurement = TEMP_CELSIUS
-        # self.update()
-        # if "sensors_raw" in device and "temperature" in device["sensors_raw"]:
-        #     self._value = device["sensors_raw"]["temperature"]
 
     @property
     def device_info(self):
@@ -410,8 +413,8 @@ class MyGDevice(SensorEntity):
             },
             "name": self._device.name,  # Name of this device.
             "manufacturer": "Rezon",  # The manufacturer of the device.
-            "model": self._device.device_type,  # The model of the device.
-            # "suggested_area": "",  # The suggested name for the area where the device is located.
+            "model": self._device.model,  # The model of the device.
+            "suggested_area": self._device.room_name,  # The suggested name for the area where the device is located.
             "sw_version": self._device.software_version,  # The firmware version of the device.
             "hw_version": self._device.hardware_version,  # The hardware version of the device.
         }
@@ -450,37 +453,165 @@ class MyGDevice(SensorEntity):
 
         This is the only method that should fetch new data for Home Assistant.
         """
-        device = self.myg.get_device(self._id)
+        device = self.myg.get_device(self._id, include_data=True)
+        self.extra_attrs[ATTR_HW_VER] = device.hardware_version
+        self.extra_attrs[ATTR_SW_VERSION] = device.software_version
 
         if device.state == "Online":
             self._state = "Online"
             self._available = True
 
-            self.extra_attrs[ATTR_HW_VER] = device.hardware_version
-            self.extra_attrs[ATTR_SW_VERSION] = device.software_version
             self.sensors[DEVICE_CLASS_SIGNAL_STRENGTH].set_value(device.rssi)
-            if device.device_type == "Station":
-                self.sensors[DEVICE_CLASS_TEMPERATURE].set_value(device.temperature)
-                self.sensors[DEVICE_CLASS_HUMIDITY].set_value(device.humidity)
-                self.sensors[DEVICE_CLASS_CO2].set_value(device.co2)
-                self.sensors[DEVICE_CLASS_ILLUMINANCE].set_value(device.luminosity)
-                self.sensors[ATTR_NOISE].set_value(device.noise)
-                self.sensors[ATTR_RADIATION].set_value(device.radiation)
-            elif device.device_type == "Drive":
-                self.sensors[ATTR_NOISE].set_value(device.noise)
-
+            self.sensors[DEVICE_CLASS_TEMPERATURE].set_value(device.temperature)
+            self.sensors[DEVICE_CLASS_HUMIDITY].set_value(device.humidity)
+            self.sensors[DEVICE_CLASS_CO2].set_value(device.co2)
+            self.sensors[DEVICE_CLASS_ILLUMINANCE].set_value(device.luminosity)
+            self.sensors[ATTR_NOISE].set_value(device.noise)
+            self.sensors[ATTR_RADIATION].set_value(device.radiation)
         else:
             self._state = "Offline"
             self._available = False
             self.sensors[DEVICE_CLASS_SIGNAL_STRENGTH].set_avaliable(False)
-            if device.device_type == "Station":
-                self.sensors[DEVICE_CLASS_TEMPERATURE].set_avaliable(False)
-                self.sensors[DEVICE_CLASS_HUMIDITY].set_avaliable(False)
-                self.sensors[DEVICE_CLASS_CO2].set_avaliable(False)
-                self.sensors[DEVICE_CLASS_ILLUMINANCE].set_avaliable(False)
-                self.sensors[ATTR_NOISE].set_avaliable(False)
-                self.sensors[ATTR_RADIATION].set_avaliable(False)
-            elif device.device_type == "Drive":
-                self.sensors[ATTR_NOISE].set_avaliable(False)
+            self.sensors[DEVICE_CLASS_TEMPERATURE].set_avaliable(False)
+            self.sensors[DEVICE_CLASS_HUMIDITY].set_avaliable(False)
+            self.sensors[DEVICE_CLASS_CO2].set_avaliable(False)
+            self.sensors[DEVICE_CLASS_ILLUMINANCE].set_avaliable(False)
+            self.sensors[ATTR_NOISE].set_avaliable(False)
+            self.sensors[ATTR_RADIATION].set_avaliable(False)
 
-        self._available = True
+
+class MyGregorDrive(CoverEntity):
+    """Representation of a MyGregor drive."""
+
+    def __init__(self, device, myg) -> None:
+        """Initialize an Device."""
+        self.myg = myg
+        self._device = device
+        self._id = int(device.unique_id)
+        self._value = (
+            None  # states: STATE_OPEN, STATE_CLOSED, STATE_OPENING, STATE_CLOSING
+        )
+        self._unique_id = "MyGregorDrive_" + device.mac.replace(":", "")
+        if device.state == "Online":
+            self._state = "Online"
+            self._available = True
+        else:
+            self._state = "Offline"
+            self._available = False
+        self._curr_pos = device.position
+        self.extra_attrs: Dict[str, Any] = {}
+        self.sensors: Dict[str, Any] = {}
+
+    @property
+    def device_info(self):
+
+        return {
+            # "config_entries": "", # Config entries that are linked to this device.
+            # "configuration_url": "", # A URL on which the device or service can be configured, linking to paths inside the Home Assistant UI can be done by using homeassistant://<path>.
+            # "connections": "", # A set of tuples of (connection_type, connection identifier). Connection types are defined in the device registry module.
+            # "default_name": self._device.device_type,  # Default name of this device, will be overridden if name is set. Useful for example for an integration showing all devices on the network.
+            # "default_manufacturer": "",  # The manufacturer of the device, will be overridden if manufacturer is set. Useful for example for an integration showing all devices on the network.
+            # "default_model": "",  # The model of the device, will be overridden if model is set. Useful for example for an integration showing all devices on the network.
+            # "entry_type": "",  # The type of entry. Possible values are None and DeviceEntryType enum members.
+            "identifiers": {
+                # Set of (DOMAIN, identifier) tuples. Identifiers identify the device in the outside world. An example is a serial number.
+                # Serial numbers are unique identifiers within a specific domain
+                (DOMAIN, self.unique_id),
+                ("mac", self._device.mac),
+            },
+            "name": self._device.name,  # Name of this device.
+            "manufacturer": "Rezon",  # The manufacturer of the device.
+            "model": self._device.model,  # The model of the device.
+            "suggested_area": self._device.room_name,  # The suggested name for the area where the device is located.
+            "sw_version": self._device.software_version,  # The firmware version of the device.
+            "hw_version": self._device.hardware_version,  # The hardware version of the device.
+        }
+
+    @property
+    def name(self) -> str:
+        """Return the display name of the Device."""
+        return self._device.name
+
+    @property
+    def unique_id(self):
+        """Return the unique ID of the sensor."""
+        return self._unique_id
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return self._available
+
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        return self.extra_attrs
+
+    @property
+    def native_value(self) -> int:
+        """Return the value reported by the sensor."""
+        return self._value
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if sensor state is on."""
+        return self._value == "Online"
+
+    @property
+    def current_cover_position(self):
+        """The current position of cover where 0 means closed and 100 is fully open. Required with SUPPORT_SET_POSITION."""
+        return self._curr_pos
+
+    @property
+    def is_opening(self) -> bool:
+        """If the cover is opening or not. Used to determine state."""
+        return self._state == STATE_OPENING
+
+    @property
+    def is_closing(self) -> bool:
+        """If the cover is closing or not. Used to determine state."""
+        return self._state == STATE_CLOSING
+
+    @property
+    def is_closed(self):
+        """If the cover is closed or not. if the state is unknown, return None. Used to determine state."""
+        # STATE_CLOSED
+        return self._state == STATE_CLOSED
+
+    @property
+    def device_class(self):
+        """Describes the type/class of the cover. Must be None or one of the valid values from the table below."""
+        return DEVICE_CLASS_WINDOW
+
+    @property
+    def supported_features(self) -> int:
+        """Describes the supported features. See the related table below for details."""
+        return SUPPORT_OPEN | SUPPORT_CLOSE
+
+    # Only implement this method if the flag SUPPORT_OPEN is set.
+    async def async_open_cover(self, **kwargs):
+        """Open the cover."""
+
+    # Only implement this method if the flag SUPPORT_CLOSE is set.
+    async def async_close_cover(self, **kwargs):
+        """Close cover."""
+
+    def update(self) -> None:
+        """Fetch new state data for this device.
+
+        This is the only method that should fetch new data for Home Assistant.
+        """
+        device = self.myg.get_device(self._id, include_data=True)
+        self.extra_attrs[ATTR_HW_VER] = device.hardware_version
+        self.extra_attrs[ATTR_SW_VERSION] = device.software_version
+        self._curr_pos = device.position
+
+        if device.state == "Online":
+            self._state = "Online"
+            self._available = True
+            self.sensors[DEVICE_CLASS_SIGNAL_STRENGTH].set_value(device.rssi)
+            self.sensors[ATTR_NOISE].set_value(device.noise)
+        else:
+            self._state = "Offline"
+            self._available = False
+            self.sensors[DEVICE_CLASS_SIGNAL_STRENGTH].set_avaliable(False)
+            self.sensors[ATTR_NOISE].set_avaliable(False)
