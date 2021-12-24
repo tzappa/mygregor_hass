@@ -31,6 +31,7 @@ from homeassistant.const import (
     ATTR_SW_VERSION,
     CONF_ACCESS_TOKEN,
     PERCENTAGE,
+    STATE_OPEN,
     TEMP_CELSIUS,
     LIGHT_LUX,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
@@ -483,22 +484,24 @@ class MyGregorStation(SensorEntity):
 class MyGregorDrive(CoverEntity):
     """Representation of a MyGregor drive."""
 
+    _attr_device_class = DEVICE_CLASS_WINDOW
+    _supported_features: int = SUPPORT_OPEN | SUPPORT_CLOSE
+
     def __init__(self, device, myg) -> None:
         """Initialize an Device."""
         self.myg = myg
         self._device = device
         self._id = int(device.unique_id)
-        self._value = (
-            None  # states: STATE_OPEN, STATE_CLOSED, STATE_OPENING, STATE_CLOSING
-        )
         self._unique_id = "MyGregorDrive_" + device.mac.replace(":", "")
         if device.state == "Online":
-            self._state = "Online"
             self._available = True
         else:
-            self._state = "Offline"
             self._available = False
         self._curr_pos = device.position
+        if not device.position:
+            self._state = STATE_CLOSED
+        else:
+            self._state = STATE_OPEN
         self.extra_attrs: Dict[str, Any] = {}
         self.sensors: Dict[str, Any] = {}
 
@@ -546,15 +549,15 @@ class MyGregorDrive(CoverEntity):
     def extra_state_attributes(self) -> Dict[str, Any]:
         return self.extra_attrs
 
-    @property
-    def native_value(self) -> int:
-        """Return the value reported by the sensor."""
-        return self._value
+    # @property
+    # def native_value(self) -> int:
+    #     """Return the value reported by the sensor."""
+    #     return self._value
 
-    @property
-    def is_on(self) -> bool:
-        """Return true if sensor state is on."""
-        return self._value == "Online"
+    # @property
+    # def is_on(self) -> bool:
+    #     """Return true if sensor state is on."""
+    #     return self._value == "Online"
 
     @property
     def current_cover_position(self):
@@ -575,25 +578,35 @@ class MyGregorDrive(CoverEntity):
     def is_closed(self):
         """If the cover is closed or not. if the state is unknown, return None. Used to determine state."""
         # STATE_CLOSED
-        return self._state == STATE_CLOSED
+        return self._curr_pos == 0
 
-    @property
-    def device_class(self):
-        """Describes the type/class of the cover. Must be None or one of the valid values from the table below."""
-        return DEVICE_CLASS_WINDOW
+    # @property
+    # def device_class(self):
+    #     """Describes the type/class of the cover. Must be None or one of the valid values from the table below."""
+    #     return DEVICE_CLASS_WINDOW
 
     @property
     def supported_features(self) -> int:
-        """Describes the supported features. See the related table below for details."""
-        return SUPPORT_OPEN | SUPPORT_CLOSE
+        """Flag supported features."""
+        return self._supported_features
 
     # Only implement this method if the flag SUPPORT_OPEN is set.
-    async def async_open_cover(self, **kwargs):
+    def open_cover(self, **kwargs):
         """Open the cover."""
+        self.myg.open(self._id)
+        if self._curr_pos == 100:
+            self._state = STATE_OPEN
+        else:
+            self._state = STATE_OPENING
 
     # Only implement this method if the flag SUPPORT_CLOSE is set.
-    async def async_close_cover(self, **kwargs):
+    def close_cover(self, **kwargs):
         """Close cover."""
+        self.myg.close(self._id)
+        if not self._curr_pos:
+            self._state = STATE_CLOSED
+        else:
+            self._state = STATE_CLOSING
 
     def update(self) -> None:
         """Fetch new state data for this device.
@@ -604,14 +617,18 @@ class MyGregorDrive(CoverEntity):
         self.extra_attrs[ATTR_HW_VER] = device.hardware_version
         self.extra_attrs[ATTR_SW_VERSION] = device.software_version
         self._curr_pos = device.position
+        if not device.position:
+            self._state = STATE_CLOSED
+        else:
+            self._state = STATE_OPEN
 
         if device.state == "Online":
-            self._state = "Online"
+            # self._state = "Online"
             self._available = True
             self.sensors[DEVICE_CLASS_SIGNAL_STRENGTH].set_value(device.rssi)
             self.sensors[ATTR_NOISE].set_value(device.noise)
         else:
-            self._state = "Offline"
+            # self._state = "Offline"
             self._available = False
             self.sensors[DEVICE_CLASS_SIGNAL_STRENGTH].set_avaliable(False)
             self.sensors[ATTR_NOISE].set_avaliable(False)

@@ -54,7 +54,7 @@ class MyGregorHassConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Input is valid, set data.
                 self.data = user_input
                 # User is done adding repos, create the config entry.
-                return self.async_create_entry(title="MyGregor HASS", data=self.data)
+                return self.async_create_entry(title="MyGregor", data=self.data)
 
         return self.async_show_form(
             step_id="user", data_schema=AUTH_SCHEMA, errors=errors

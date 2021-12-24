@@ -381,6 +381,20 @@ class MyGregorApi:
         response = self._exec_request("PUT", f"/v2/rooms/{room_id}", {"state": state})
         return response
 
+    def open(self, drive_id: int):
+        """open drive."""
+        # currently setting state is supported only for all drives in the room, so we'll need this info:
+        device = self.get_device(drive_id, include_data=False, include_room=True)
+        room_id = device.room_id
+        self.set_room_state(room_id, "open")
+
+    def close(self, drive_id: int):
+        """close drive."""
+        # currently setting state is supported only for all drives in the room, so we'll need this info:
+        device = self.get_device(drive_id, include_data=False, include_room=True)
+        room_id = device.room_id
+        self.set_room_state(room_id, "close")
+
     def _exec_request(self, method, endpoint, payload={}):
         """Executes request against MyGregor API."""
 
