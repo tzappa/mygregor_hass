@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-# from homeassistant.helpers.device_registry import format_mac
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 
 from .const import ATTR_MAC
 
@@ -17,11 +17,11 @@ class MyGregorDevice:
     sensors: dict[str, Any] = {}
     extra_attrs: dict[str, Any] = {}
 
-    def __init__(self, device, api) -> None:
+    def __init__(self, device) -> None:
         """Initialize device."""
-        self.api = api
         self.device = device
         self.extra_attrs[ATTR_MAC] = device.mac
+        self._connections = {(CONNECTION_NETWORK_MAC, device.mac)}
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

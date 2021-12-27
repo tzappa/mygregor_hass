@@ -1,8 +1,10 @@
 """MyGregor Home Assistant Integration."""
+from dataclasses import dataclass
 import logging
 
 from homeassistant import config_entries, core
 from homeassistant.const import CONF_ACCESS_TOKEN
+from homeassistant.helpers.device_registry import format_mac
 
 from .const import DOMAIN
 from .mygregorpy import MyGregorApi
@@ -17,7 +19,7 @@ async def async_setup_entry(
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry.data
     hass.data[DOMAIN]["devices"] = {}
-    hass.data[DOMAIN]["api"] = {}
+    hass.data[DOMAIN]["registry"] = {}
 
     # Setup connection with devices/cloud
     api = MyGregorApi()
@@ -25,23 +27,39 @@ async def async_setup_entry(
     _LOGGER.debug("Setting up online MyGregor device")
     devices = await hass.async_add_executor_job(api.get_devices, True, True)
     hass.data[DOMAIN]["devices"][entry.entry_id] = devices
-    hass.data[DOMAIN]["api"][entry.entry_id] = api
+    hass.data[DOMAIN]["registry"][entry.entry_id] = MyGregorRegistry(api)
 
-    # hass.config_entries.async_setup_platforms(entry, RPC_PLATFORMS)
-
-    # Forward the setup to the sensor platform.
-    hass.async_create_task(
-        hass.config_entries.async_forward_entry_setup(entry, "sensor")
-    )
     # Forward the setup to the cover (driver) platform.
     hass.async_create_task(
         hass.config_entries.async_forward_entry_setup(entry, "cover")
+    )
+    # Forward the setup to the sensor platform.
+    hass.async_create_task(
+        hass.config_entries.async_forward_entry_setup(entry, "sensor")
     )
 
     return True
 
 
-# async def async_setup(hass: core.HomeAssistant, config: dict) -> bool:
-#     """Set up the MyGregor HASS component from yaml configuration."""
-#     hass.data.setdefault(DOMAIN, {})
-#     return True
+class MyGregorRegistry:
+    """Register for sensors and devices."""
+
+    def __init__(self, api) -> None:
+        """Create registry."""
+        self.sensors = {}
+        self._api = api
+
+    def add_sensor(self, device_mac, sensor) -> None:
+        """Add a sensor to the list with unique ID."""
+        _id = format_mac(device_mac) + "_" + sensor.device_class
+        self.sensors[_id] = sensor
+
+    def get_sensor(self, device_mac, device_class):
+        """Returns registered sensor or None if the sensor is not present."""
+        _id = format_mac(device_mac) + "_" + device_class
+        return self.sensors[_id] if _id in self.sensors else None
+
+    @property
+    def api(self):
+        """Access MyGregor API."""
+        return self._api

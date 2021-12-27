@@ -62,11 +62,38 @@ async def async_setup_entry(
     # hub.set_access_token(access_token)
 
     devices = hass.data[DOMAIN]["devices"][config_entry.entry_id]
-    hub = hass.data[DOMAIN]["api"][config_entry.entry_id]
+    registry = hass.data[DOMAIN]["registry"][config_entry.entry_id]
     sensors = []
     for device in devices:
-        if device.device_type == "Station":
-            station = MyGregorStation(device, hub)
+        if device.device_type == "Drive":
+            sensor = MyGRSSISensor(
+                mac=device.mac, name=f"{device.name} RSSI", value=device.rssi
+            )
+            registry.add_sensor(device.mac, sensor)
+            sensors += [sensor]
+
+            sensor = MyGBatteryLevelSensor(
+                mac=device.mac,
+                name=f"{device.name} Battery",
+                value=device.battery_level,
+            )
+            registry.add_sensor(device.mac, sensor)
+            sensors += [sensor]
+
+            sensor = MyGNoiseSensor(
+                mac=device.mac, name=f"{device.name} Noise", value=device.noise
+            )
+            registry.add_sensor(device.mac, sensor)
+            sensors += [sensor]
+
+            sensor = MyGPositionSensor(
+                mac=device.mac, name=f"{device.name} Position", value=device.position
+            )
+            registry.add_sensor(device.mac, sensor)
+            sensors += [sensor]
+
+        elif device.device_type == "Station":
+            station = MyGregorStation(device, registry)
             sensors += [station]
 
             sensor = MyGRSSISensor(
@@ -206,6 +233,24 @@ class MyGTemperatureSensor(MyGSensor):
         return TEMP_CELSIUS
 
 
+class MyGPositionSensor(MyGSensor):
+    """Representation of a MyGregor position sensor."""
+
+    def __init__(self, mac, name, value) -> None:
+        """Initialize an Sensor."""
+        super().__init__(mac, name, "position", value)
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return the unit of measurement of this entity."""
+        return "%"
+
+    @property
+    def icon(self) -> str | None:
+        """Return the icon to use in the frontend, if any."""
+        return "mdi:angle-acute"
+
+
 class MyGHumiditySensor(MyGSensor):
     """Representation of a MyGregor humidity sensor."""
 
@@ -308,9 +353,10 @@ class MyGBatteryLevelSensor(MyGSensor):
 class MyGregorStation(MyGregorDevice, Entity):
     """Representation of a MyGregor station device."""
 
-    def __init__(self, device, api) -> None:
+    def __init__(self, device, registry) -> None:
         """Initialize station."""
-        super().__init__(device, api)
+        super().__init__(device)
+        self.registry = registry
         self._id = int(device.unique_id)
         self._value = device.state
         self._unique_id = "MyGregor" + device.device_type + "_" + format_mac(device.mac)
@@ -326,7 +372,7 @@ class MyGregorStation(MyGregorDevice, Entity):
         return {
             # "config_entries": "", # Config entries that are linked to this device.
             # "configuration_url": "", # A URL on which the device or service can be configured, linking to paths inside the Home Assistant UI can be done by using homeassistant://<path>.
-            # "connections": "", # A set of tuples of (connection_type, connection identifier). Connection types are defined in the device registry module.
+            "connections": self._connections,  # A set of tuples of (connection_type, connection identifier). Connection types are defined in the device registry module.
             # "default_name": self.device.device_type,  # Default name of this device, will be overridden if name is set. Useful for example for an integration showing all devices on the network.
             # "default_manufacturer": "",  # The manufacturer of the device, will be overridden if manufacturer is set. Useful for example for an integration showing all devices on the network.
             # "default_model": "",  # The model of the device, will be overridden if model is set. Useful for example for an integration showing all devices on the network.
@@ -375,7 +421,7 @@ class MyGregorStation(MyGregorDevice, Entity):
 
         This is the only method that should fetch new data for Home Assistant.
         """
-        device = self.api.get_device(self._id, include_data=True)
+        device = self.registry.api.get_device(self._id, include_data=True)
         self.extra_attrs[ATTR_HW_VER] = device.hardware_version
         self.extra_attrs[ATTR_SW_VERSION] = device.software_version
 
