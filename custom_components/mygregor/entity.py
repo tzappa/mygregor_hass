@@ -1,14 +1,10 @@
 """MyGregor entity helper."""
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
-
 from .const import ATTR_MAC
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class MyGregorDevice:

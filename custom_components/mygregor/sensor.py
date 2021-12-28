@@ -8,25 +8,23 @@ import voluptuous as vol
 
 # Import the device class from the component that you want to support
 import homeassistant.helpers.config_validation as cv
-from homeassistant.components.sensor import PLATFORM_SCHEMA
-
 from homeassistant.helpers.device_registry import format_mac
-from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.components.sensor import PLATFORM_SCHEMA
 from homeassistant.const import (
-    ATTR_BATTERY_LEVEL,
     ATTR_SW_VERSION,
+    DEVICE_CLASS_CO2,
+    DEVICE_CLASS_HUMIDITY,
+    DEVICE_CLASS_ILLUMINANCE,
+    DEVICE_CLASS_SIGNAL_STRENGTH,
+    DEVICE_CLASS_TEMPERATURE,
     CONF_ACCESS_TOKEN,
     PERCENTAGE,
     TEMP_CELSIUS,
     LIGHT_LUX,
-    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    # SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     CONCENTRATION_PARTS_PER_MILLION,
-    DEVICE_CLASS_TEMPERATURE,
-    DEVICE_CLASS_HUMIDITY,
-    DEVICE_CLASS_CO2,
-    DEVICE_CLASS_ILLUMINANCE,
-    DEVICE_CLASS_SIGNAL_STRENGTH,
-    ENTITY_CATEGORY_DIAGNOSTIC,
+    # ENTITY_CATEGORY_DIAGNOSTIC,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -34,7 +32,8 @@ from homeassistant.components.sensor import (
     STATE_CLASS_MEASUREMENT,
     SensorEntity,
 )
-from .const import DOMAIN, ATTR_HW_VER, ATTR_NOISE, ATTR_RADIATION
+from .const import DOMAIN, ATTR_RADIATION, ATTR_HW_VER, ATTR_NOISE
+
 from .entity import MyGregorDevice
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,34 +51,15 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities,
+    async_add_entities: AddEntitiesCallback,
 ):
     """Setup sensors from a config entry created in the integrations UI."""
-    # config = hass.data[DOMAIN][config_entry.entry_id]
-    # access_token = config[CONF_ACCESS_TOKEN]
-    # # Setup connection with devices/cloud
-    # hub = MyGregorApi()
-    # hub.set_access_token(access_token)
 
-    devices = hass.data[DOMAIN]["devices"][config_entry.entry_id]
     registry = hass.data[DOMAIN]["registry"][config_entry.entry_id]
+    api_devices = registry.api_devices
     sensors = []
-    for device in devices:
+    for device in api_devices:
         if device.device_type == "Drive":
-            sensor = MyGRSSISensor(
-                mac=device.mac, name=f"{device.name} RSSI", value=device.rssi
-            )
-            registry.add_sensor(device.mac, sensor)
-            sensors += [sensor]
-
-            sensor = MyGBatteryLevelSensor(
-                mac=device.mac,
-                name=f"{device.name} Battery",
-                value=device.battery_level,
-            )
-            registry.add_sensor(device.mac, sensor)
-            sensors += [sensor]
-
             sensor = MyGNoiseSensor(
                 mac=device.mac, name=f"{device.name} Noise", value=device.noise
             )
@@ -96,24 +76,18 @@ async def async_setup_entry(
             station = MyGregorStation(device, registry)
             sensors += [station]
 
-            sensor = MyGRSSISensor(
-                mac=device.mac, name=f"{device.name} RSSI", value=device.rssi
-            )
-            station.sensors[DEVICE_CLASS_SIGNAL_STRENGTH] = sensor
-            sensors += [sensor]
-
             sensor = MyGTemperatureSensor(
                 mac=device.mac,
                 name=f"{device.name} Temperature",
                 value=device.temperature,
             )
-            station.sensors[DEVICE_CLASS_TEMPERATURE] = sensor
+            registry.add_sensor(device.mac, sensor)
             sensors += [sensor]
 
             sensor = MyGHumiditySensor(
                 mac=device.mac, name=f"{device.name} Humidity", value=device.humidity
             )
-            station.sensors[DEVICE_CLASS_HUMIDITY] = sensor
+            registry.add_sensor(device.mac, sensor)
             sensors += [sensor]
 
             sensor = MyGCO2Sensor(
@@ -121,7 +95,7 @@ async def async_setup_entry(
                 name=f"{device.name} CO₂",
                 value=device.co2,
             )
-            station.sensors[DEVICE_CLASS_CO2] = sensor
+            registry.add_sensor(device.mac, sensor)
             sensors += [sensor]
 
             sensor = MyGLuminositySensor(
@@ -129,22 +103,123 @@ async def async_setup_entry(
                 name=f"{device.name} Luminosity",
                 value=device.luminosity,
             )
-            station.sensors[DEVICE_CLASS_ILLUMINANCE] = sensor
+            registry.add_sensor(device.mac, sensor)
             sensors += [sensor]
 
             sensor = MyGNoiseSensor(
                 mac=device.mac, name=f"{device.name} Noise", value=device.noise
             )
-            station.sensors[ATTR_NOISE] = sensor
+            registry.add_sensor(device.mac, sensor)
             sensors += [sensor]
 
             sensor = MyGRadiationSensor(
                 mac=device.mac, name=f"{device.name} Radiation", value=device.radiation
             )
-            station.sensors[ATTR_RADIATION] = sensor
+            registry.add_sensor(device.mac, sensor)
             sensors += [sensor]
 
     async_add_entities(sensors)
+
+
+class MyGregorStation(MyGregorDevice, SensorEntity):
+    """Representation of a MyGregor station device."""
+
+    def __init__(self, device, registry) -> None:
+        """Initialize station."""
+        super().__init__(device)
+        self.registry = registry
+        self._id = int(device.unique_id)
+        self._value = device.state
+        self._unique_id = "MyGregor" + device.device_type + "_" + format_mac(device.mac)
+        if device.state == "Online":
+            self._value = "Online"
+            self._available = True
+        else:
+            self._value = "Offline"
+            self._available = False
+
+    @property
+    def device_info(self):
+        return {
+            # "config_entries": "", # Config entries that are linked to this device.
+            # "configuration_url": "", # A URL on which the device or service can be configured, linking to paths inside the Home Assistant UI can be done by using homeassistant://<path>.
+            "connections": self._connections,  # A set of tuples of (connection_type, connection identifier). Connection types are defined in the device registry module.
+            # "default_name": self.device.device_type,  # Default name of this device, will be overridden if name is set. Useful for example for an integration showing all devices on the network.
+            # "default_manufacturer": "",  # The manufacturer of the device, will be overridden if manufacturer is set. Useful for example for an integration showing all devices on the network.
+            # "default_model": "",  # The model of the device, will be overridden if model is set. Useful for example for an integration showing all devices on the network.
+            # "entry_type": "",  # The type of entry. Possible values are None and DeviceEntryType enum members.
+            "identifiers": {
+                # Set of (DOMAIN, identifier) tuples. Identifiers identify the device in the outside world. An example is a serial number.
+                # Serial numbers are unique identifiers within a specific domain
+                (DOMAIN, self.unique_id),
+                ("mac", self.device.mac),
+            },
+            "name": self.device.name,  # Name of this device.
+            "manufacturer": "Rezon",  # The manufacturer of the device.
+            "model": self.device.model,  # The model of the device.
+            "suggested_area": self.device.zone_name,  # The suggested name for the area where the device is located.
+            "sw_version": self.device.software_version,  # The firmware version of the device.
+            "hw_version": self.device.hardware_version,  # The hardware version of the device.
+        }
+
+    @property
+    def name(self) -> str:
+        """Return the display name of the Device."""
+        return self.device.name
+
+    @property
+    def unique_id(self):
+        """Return the unique ID of the sensor."""
+        return self._unique_id
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return self._available
+
+    @property
+    def native_value(self) -> int:
+        """Return the value reported by the sensor."""
+        return self._value
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if sensor state is on."""
+        return self._value == "Online"
+
+    def update(self) -> None:
+        """Fetch new state data for this device.
+
+        This is the only method that should fetch new data for Home Assistant.
+        """
+        device = self.registry.api.get_device(self._id, include_data=True)
+        self.extra_attrs[ATTR_HW_VER] = device.hardware_version
+        self.extra_attrs[ATTR_SW_VERSION] = device.software_version
+        self.extra_attrs[DEVICE_CLASS_SIGNAL_STRENGTH] = device.rssi
+
+        mac = self.device.mac
+        if device.state == "Online":
+            self._value = "Online"
+            self._available = True
+            self.registry.set_sensor_value(
+                mac, DEVICE_CLASS_TEMPERATURE, device.temperature
+            )
+            self.registry.set_sensor_value(mac, DEVICE_CLASS_HUMIDITY, device.humidity)
+            self.registry.set_sensor_value(mac, DEVICE_CLASS_CO2, device.co2)
+            self.registry.set_sensor_value(
+                mac, DEVICE_CLASS_ILLUMINANCE, device.luminosity
+            )
+            self.registry.set_sensor_value(mac, ATTR_NOISE, device.noise)
+            self.registry.set_sensor_value(mac, ATTR_RADIATION, device.radiation)
+        else:
+            self._value = "Offline"
+            self._available = False
+            self.registry.set_sensor_value(mac, DEVICE_CLASS_TEMPERATURE, None)
+            self.registry.set_sensor_value(mac, DEVICE_CLASS_HUMIDITY, None)
+            self.registry.set_sensor_value(mac, DEVICE_CLASS_CO2, None)
+            self.registry.set_sensor_value(mac, DEVICE_CLASS_ILLUMINANCE, None)
+            self.registry.set_sensor_value(mac, ATTR_NOISE, None)
+            self.registry.set_sensor_value(mac, ATTR_RADIATION, None)
 
 
 class MyGSensor(SensorEntity):
@@ -194,7 +269,7 @@ class MyGSensor(SensorEntity):
         if value is not None:
             self._available = True
 
-    def set_avaliable(self, value: bool):
+    def set_available(self, value: bool):
         """Parent device is setting availability on or off."""
         self._available = value
 
@@ -243,7 +318,7 @@ class MyGPositionSensor(MyGSensor):
     @property
     def native_unit_of_measurement(self) -> str:
         """Return the unit of measurement of this entity."""
-        return "%"
+        return PERCENTAGE
 
     @property
     def icon(self) -> str | None:
@@ -313,136 +388,20 @@ class MyGLuminositySensor(MyGSensor):
         return LIGHT_LUX
 
 
-class MyGRSSISensor(MyGSensor):
-    """Representation of a MyGregor RSSI sensor."""
+# class MyGRSSISensor(MyGSensor):
+#     """Representation of a MyGregor RSSI sensor."""
 
-    def __init__(self, mac, name, value) -> None:
-        """Initialize an Sensor."""
-        super().__init__(mac, name, DEVICE_CLASS_SIGNAL_STRENGTH, value)
-        # default availability is Off. User can activate this
-        self._attr_entity_registry_enabled_default = False
+#     def __init__(self, mac, name, value) -> None:
+#         """Initialize an Sensor."""
+#         super().__init__(mac, name, DEVICE_CLASS_SIGNAL_STRENGTH, value)
+#         # default availability is Off. User can activate this
+#         self._attr_entity_registry_enabled_default = False
 
-    @property
-    def native_unit_of_measurement(self) -> str:
-        """Return the unit of measurement of this entity."""
-        return SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+#     @property
+#     def native_unit_of_measurement(self) -> str:
+#         """Return the unit of measurement of this entity."""
+#         return SIGNAL_STRENGTH_DECIBELS_MILLIWATT
 
-    @property
-    def entity_category(self):
-        return ENTITY_CATEGORY_DIAGNOSTIC
-
-
-# This shall be a sensor to a Battery Device, not Drive
-class MyGBatteryLevelSensor(MyGSensor):
-    """Representation of a MyGregor battery sensor."""
-
-    def __init__(self, mac, name, value) -> None:
-        """Initialize an Sensor."""
-        super().__init__(mac, name, ATTR_BATTERY_LEVEL, value)
-
-    @property
-    def native_unit_of_measurement(self) -> str:
-        """Return the unit of measurement of this entity."""
-        return PERCENTAGE
-
-    @property
-    def entity_category(self):
-        return ENTITY_CATEGORY_DIAGNOSTIC
-
-
-class MyGregorStation(MyGregorDevice, Entity):
-    """Representation of a MyGregor station device."""
-
-    def __init__(self, device, registry) -> None:
-        """Initialize station."""
-        super().__init__(device)
-        self.registry = registry
-        self._id = int(device.unique_id)
-        self._value = device.state
-        self._unique_id = "MyGregor" + device.device_type + "_" + format_mac(device.mac)
-        if device.state == "Online":
-            self._state = "Online"
-            self._available = True
-        else:
-            self._state = "Offline"
-            self._available = False
-
-    @property
-    def device_info(self):
-        return {
-            # "config_entries": "", # Config entries that are linked to this device.
-            # "configuration_url": "", # A URL on which the device or service can be configured, linking to paths inside the Home Assistant UI can be done by using homeassistant://<path>.
-            "connections": self._connections,  # A set of tuples of (connection_type, connection identifier). Connection types are defined in the device registry module.
-            # "default_name": self.device.device_type,  # Default name of this device, will be overridden if name is set. Useful for example for an integration showing all devices on the network.
-            # "default_manufacturer": "",  # The manufacturer of the device, will be overridden if manufacturer is set. Useful for example for an integration showing all devices on the network.
-            # "default_model": "",  # The model of the device, will be overridden if model is set. Useful for example for an integration showing all devices on the network.
-            # "entry_type": "",  # The type of entry. Possible values are None and DeviceEntryType enum members.
-            "identifiers": {
-                # Set of (DOMAIN, identifier) tuples. Identifiers identify the device in the outside world. An example is a serial number.
-                # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, self.unique_id),
-                ("mac", self.device.mac),
-            },
-            "name": self.device.name,  # Name of this device.
-            "manufacturer": "Rezon",  # The manufacturer of the device.
-            "model": self.device.model,  # The model of the device.
-            "suggested_area": self.device.room_name,  # The suggested name for the area where the device is located.
-            "sw_version": self.device.software_version,  # The firmware version of the device.
-            "hw_version": self.device.hardware_version,  # The hardware version of the device.
-        }
-
-    @property
-    def name(self) -> str:
-        """Return the display name of the Device."""
-        return self.device.name
-
-    @property
-    def unique_id(self):
-        """Return the unique ID of the sensor."""
-        return self._unique_id
-
-    @property
-    def available(self) -> bool:
-        """Return True if entity is available."""
-        return self._available
-
-    @property
-    def native_value(self) -> int:
-        """Return the value reported by the sensor."""
-        return self._value
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if sensor state is on."""
-        return self._value == "Online"
-
-    def update(self) -> None:
-        """Fetch new state data for this device.
-
-        This is the only method that should fetch new data for Home Assistant.
-        """
-        device = self.registry.api.get_device(self._id, include_data=True)
-        self.extra_attrs[ATTR_HW_VER] = device.hardware_version
-        self.extra_attrs[ATTR_SW_VERSION] = device.software_version
-
-        if device.state == "Online":
-            self._state = "Online"
-            self._available = True
-
-            self.sensors[DEVICE_CLASS_SIGNAL_STRENGTH].set_value(device.rssi)
-            self.sensors[DEVICE_CLASS_TEMPERATURE].set_value(device.temperature)
-            self.sensors[DEVICE_CLASS_HUMIDITY].set_value(device.humidity)
-            self.sensors[DEVICE_CLASS_CO2].set_value(device.co2)
-            self.sensors[DEVICE_CLASS_ILLUMINANCE].set_value(device.luminosity)
-            self.sensors[ATTR_NOISE].set_value(device.noise)
-            self.sensors[ATTR_RADIATION].set_value(device.radiation)
-        else:
-            self._state = "Offline"
-            self._available = False
-            self.sensors[DEVICE_CLASS_SIGNAL_STRENGTH].set_avaliable(False)
-            self.sensors[DEVICE_CLASS_TEMPERATURE].set_avaliable(False)
-            self.sensors[DEVICE_CLASS_HUMIDITY].set_avaliable(False)
-            self.sensors[DEVICE_CLASS_CO2].set_avaliable(False)
-            self.sensors[DEVICE_CLASS_ILLUMINANCE].set_avaliable(False)
-            self.sensors[ATTR_NOISE].set_avaliable(False)
-            self.sensors[ATTR_RADIATION].set_avaliable(False)
+#     @property
+#     def entity_category(self):
+#         return ENTITY_CATEGORY_DIAGNOSTIC

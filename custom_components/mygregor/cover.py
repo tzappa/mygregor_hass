@@ -35,10 +35,10 @@ async def async_setup_entry(
 ):
     """Setup sensors from a config entry created in the integrations UI."""
 
-    devices = hass.data[DOMAIN]["devices"][config_entry.entry_id]
     registry = hass.data[DOMAIN]["registry"][config_entry.entry_id]
+    api_devices = registry.api_devices
     drives = []
-    for device in devices:
+    for device in api_devices:
         if device.device_type == "Drive":
             drive = MyGregorDrive(device, registry)
             drives += [drive]
@@ -73,6 +73,7 @@ class MyGregorDrive(MyGregorDevice, CoverEntity):
         self.extra_attrs[ATTR_HW_VER] = device.hardware_version
         self.extra_attrs[ATTR_SW_VERSION] = device.software_version
         self.extra_attrs[DEVICE_CLASS_SIGNAL_STRENGTH] = device.rssi
+        self.extra_attrs[DEVICE_CLASS_SIGNAL_STRENGTH] = device.battery_level
 
     @property
     def device_info(self):
@@ -93,7 +94,7 @@ class MyGregorDrive(MyGregorDevice, CoverEntity):
             "name": self.device.name,  # Name of this device.
             "manufacturer": "Bulinfo",  # The manufacturer of the device.
             "model": self.device.model,  # The model of the device.
-            "suggested_area": self.device.room_name,  # The suggested name for the area where the device is located.
+            "suggested_area": self.device.zone_name,  # The suggested name for the area where the device is located.
             "sw_version": self.device.software_version,  # The firmware version of the device.
             "hw_version": self.device.hardware_version,  # The hardware version of the device.
         }
@@ -161,11 +162,13 @@ class MyGregorDrive(MyGregorDevice, CoverEntity):
         This is the only method that should fetch new data for Home Assistant.
         """
         device = self.registry.api.get_device(
-            self._id, include_data=True, include_room=False
+            self._id, include_data=True, include_zone=False
         )
         self.extra_attrs[ATTR_HW_VER] = device.hardware_version
         self.extra_attrs[ATTR_SW_VERSION] = device.software_version
         self.extra_attrs[DEVICE_CLASS_SIGNAL_STRENGTH] = device.rssi
+        self.extra_attrs[ATTR_BATTERY_LEVEL] = device.battery_level
+
         self._curr_pos = device.position
         if not device.position:
             self._state = STATE_CLOSED
@@ -175,33 +178,9 @@ class MyGregorDrive(MyGregorDevice, CoverEntity):
         mac = self.device.mac
         if device.state == "Online":
             self._available = True
-            sensor = self.registry.get_sensor(mac, DEVICE_CLASS_SIGNAL_STRENGTH)
-            if sensor:
-                sensor.set_value(device.rssi)
-                sensor.set_avaliable(True)
-            sensor = self.registry.get_sensor(mac, ATTR_NOISE)
-            if sensor:
-                sensor.set_value(device.noise)
-                sensor.set_avaliable(True)
-            sensor = self.registry.get_sensor(mac, ATTR_BATTERY_LEVEL)
-            if sensor:
-                sensor.set_value(device.battery_level)
-                sensor.set_avaliable(True)
-            sensor = self.registry.get_sensor(mac, "position")
-            if sensor:
-                sensor.set_value(device.position)
-                sensor.set_avaliable(True)
+            self.registry.set_sensor_value(mac, ATTR_NOISE, device.noise)
+            self.registry.set_sensor_value(mac, "position", device.position)
         else:
             self._available = False
-            sensor = self.registry.get_sensor(mac, DEVICE_CLASS_SIGNAL_STRENGTH)
-            if sensor:
-                sensor.set_avaliable(False)
-            sensor = self.registry.get_sensor(mac, ATTR_NOISE)
-            if sensor:
-                sensor.set_avaliable(False)
-            sensor = self.registry.get_sensor(mac, ATTR_BATTERY_LEVEL)
-            if sensor:
-                sensor.set_avaliable(False)
-            sensor = self.registry.get_sensor(mac, "position")
-            if sensor:
-                sensor.set_avaliable(False)
+            self.registry.set_sensor_value(mac, ATTR_NOISE, None)
+            self.registry.set_sensor_value(mac, "position", None)

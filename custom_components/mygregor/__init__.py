@@ -18,16 +18,14 @@ async def async_setup_entry(
     """Set up platform from a ConfigEntry."""
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry.data
-    hass.data[DOMAIN]["devices"] = {}
     hass.data[DOMAIN]["registry"] = {}
 
     # Setup connection with devices/cloud
     api = MyGregorApi()
     api.set_access_token(entry.data[CONF_ACCESS_TOKEN])
     _LOGGER.debug("Setting up online MyGregor device")
-    devices = await hass.async_add_executor_job(api.get_devices, True, True)
-    hass.data[DOMAIN]["devices"][entry.entry_id] = devices
-    hass.data[DOMAIN]["registry"][entry.entry_id] = MyGregorRegistry(api)
+    api_devices = await hass.async_add_executor_job(api.get_devices, True, True)
+    hass.data[DOMAIN]["registry"][entry.entry_id] = MyGregorRegistry(api, api_devices)
 
     # Forward the setup to the cover (driver) platform.
     hass.async_create_task(
@@ -44,10 +42,17 @@ async def async_setup_entry(
 class MyGregorRegistry:
     """Register for sensors and devices."""
 
-    def __init__(self, api) -> None:
+    def __init__(self, api, api_devices) -> None:
         """Create registry."""
         self.sensors = {}
+        self.devices = {}
         self._api = api
+        self.api_devices = api_devices
+
+    @property
+    def api(self):
+        """Access MyGregor API."""
+        return self._api
 
     def add_sensor(self, device_mac, sensor) -> None:
         """Add a sensor to the list with unique ID."""
@@ -59,7 +64,12 @@ class MyGregorRegistry:
         _id = format_mac(device_mac) + "_" + device_class
         return self.sensors[_id] if _id in self.sensors else None
 
-    @property
-    def api(self):
-        """Access MyGregor API."""
-        return self._api
+    def set_sensor_value(self, device_mac, device_class, value):
+        """Checks the sensor is registered and changes it's value."""
+        sensor = self.get_sensor(device_mac, device_class)
+        if sensor:
+            if value is None:
+                sensor.set_available(False)
+            else:
+                sensor.set_available(True)
+                sensor.set_value(value)

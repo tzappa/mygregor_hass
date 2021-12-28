@@ -23,8 +23,8 @@ class MyGregorDevice:
         self._mac = mac
         self._model = model
         self._sensors = {}
-        self._room_name = None
-        self._room_id = None
+        self._zone_name = None
+        self._zone_id = None
         # typical sensors for WiFi devices
         self.enable_sensor("rssi", "dB", "RSSI")
         # not exactly sensors but attributes
@@ -78,19 +78,19 @@ class MyGregorDevice:
         return self.get_value("sw_version")
 
     @property
-    def room_id(self):
-        """Return room ID."""
-        return self._room_id
+    def zone_id(self):
+        """Return zone ID."""
+        return self._zone_id
 
     @property
-    def room_name(self):
-        """Return room name."""
-        return self._room_name
+    def zone_name(self):
+        """Return zone name."""
+        return self._zone_name
 
-    def set_room(self, room_id, room_name):
-        """Set's room info."""
-        self._room_id = room_id
-        self._room_name = room_name
+    def set_zone(self, zone_id, zone_name):
+        """Set's zone info."""
+        self._zone_id = zone_id
+        self._zone_name = zone_name
 
     def enable_sensor(self, sensor: str, measurement: str, title=None):
         """Enable some sensors."""
@@ -243,7 +243,7 @@ class MyGregorApi:
         }
 
         endpoint = "/v2/auth"
-        url = BASE_URL + "/v2/auth"
+        url = BASE_URL + endpoint
 
         _LOGGER.debug("Accessing API %s for user %s login", endpoint, username)
         response = requests.request(
@@ -274,13 +274,13 @@ class MyGregorApi:
         response = self._exec_request("GET", "/v2/accounts/me")
         return response
 
-    def get_devices(self, include_data: bool = False, include_room: bool = False):
+    def get_devices(self, include_data: bool = False, include_zone: bool = False):
         """Returns list of all user's devices."""
 
         include = []
         if include_data:
             include += ["device_data"]
-        if include_room:
+        if include_zone:
             include += ["room_data"]
         response = self._exec_request("GET", "/v2/devices?include=" + ",".join(include))
 
@@ -291,14 +291,14 @@ class MyGregorApi:
         return devices
 
     def get_device(
-        self, device_id: int, include_data: bool = True, include_room: bool = False
+        self, device_id: int, include_data: bool = True, include_zone: bool = False
     ):
         """Returns device data."""
 
         include = []
         if include_data:
             include += ["device_data"]
-        if include_room:
+        if include_zone:
             include += ["room_data"]
         response = self._exec_request(
             "GET", f"/v2/devices/{device_id}?include=" + ",".join(include)
@@ -323,7 +323,7 @@ class MyGregorApi:
         if "software_version" in data:
             device.set_value("sw_version", data["software_version"])
         if "room" in data:
-            device.set_room(data["room"]["id"], data["room"]["name"])
+            device.set_zone(data["room"]["id"], data["room"]["name"])
         if "power_profile" in data:
             device.set_value("power_profile", data["power_profile"])
         if "position" in data:
@@ -355,45 +355,45 @@ class MyGregorApi:
 
         return device
 
-    def get_rooms(self, include_image: bool = False):
-        """Returns user's rooms."""
+    def get_zones(self, include_image: bool = False):
+        """Returns user's zones (rooms)."""
         if include_image:
             response = self._exec_request("GET", "/v2.1/rooms?include=image")
         else:
             response = self._exec_request("GET", "/v2.1/rooms")
         return response["rooms"]
 
-    def get_room_info(self, room_id: int):
-        """Returns all available info about specific user's room."""
+    def get_zone_info(self, zone_id: int):
+        """Returns all available info about specific user's zone (room)."""
         response = self._exec_request(
             "GET",
-            f"/v2/rooms/{room_id}?include=image,power_profile,room_data,devices,device_data",
+            f"/v2/rooms/{zone_id}?include=image,power_profile,room_data,devices,device_data",
         )
         return response
 
-    def set_room_state(self, room_id: int, state: str):
-        """open/close or set another action for specific room"""
+    def set_zone_state(self, zone_id: int, state: str):
+        """open/close or set another action for specific zone"""
         available_states = ("auto", "open", "close", "airing", "relax")
         if state not in available_states:
             raise MyGregorApiException(
-                f"Room state can be one of the following {available_states}. Unknown state '{state}' is given."
+                f"Zone state can be one of the following {available_states}. Unknown state '{state}' is given."
             )
-        response = self._exec_request("PUT", f"/v2/rooms/{room_id}", {"state": state})
+        response = self._exec_request("PUT", f"/v2/rooms/{zone_id}", {"state": state})
         return response
 
     def open(self, drive_id: int):
         """open drive."""
-        # currently setting state is supported only for all drives in the room, so we'll need this info:
-        device = self.get_device(drive_id, include_data=False, include_room=True)
-        room_id = device.room_id
-        self.set_room_state(room_id, "open")
+        # currently setting state is supported only for all drives in the zone, so we'll need this info:
+        device = self.get_device(drive_id, include_data=False, include_zone=True)
+        zone_id = device.zone_id
+        self.set_zone_state(zone_id, "open")
 
     def close(self, drive_id: int):
         """close drive."""
-        # currently setting state is supported only for all drives in the room, so we'll need this info:
-        device = self.get_device(drive_id, include_data=False, include_room=True)
-        room_id = device.room_id
-        self.set_room_state(room_id, "close")
+        # currently setting state is supported only for all drives in the zone, so we'll need this info:
+        device = self.get_device(drive_id, include_data=False, include_zone=True)
+        zone_id = device.zone_id
+        self.set_zone_state(zone_id, "close")
 
     def _exec_request(self, method, endpoint, payload={}):
         """Executes request against MyGregor API."""

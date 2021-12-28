@@ -41,4 +41,4 @@ class MyGDriveOption(SelectEntity):
     def select_option(self, option: str) -> None:
         """Change the selected option."""
         self._current_option = option
-        self.api.set_room_state(self._device.room_id, option)
+        self.api.set_zone_state(self._device.zone_id, option)
