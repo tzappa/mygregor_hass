@@ -36,7 +36,7 @@ async def async_setup_entry(
     """Setup sensors from a config entry created in the integrations UI."""
 
     registry = hass.data[DOMAIN]["registry"][config_entry.entry_id]
-    api_devices = registry.api_devices
+    api_devices = [registry.api_devices]
     drives = []
     for device in api_devices:
         if device.device_type == "Drive":

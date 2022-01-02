@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
+
+from homeassistant.data_entry_flow import FlowResult
 
 from .mygregorpy import (
     MyGregorApi,
     UnauthorizedException,
 )
 from homeassistant import config_entries, core
-from homeassistant.const import CONF_ACCESS_TOKEN
+from homeassistant.const import CONF_ACCESS_TOKEN, CONF_MAC
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
@@ -18,10 +20,15 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-AUTH_SCHEMA = vol.Schema({vol.Required(CONF_ACCESS_TOKEN): cv.string})
+AUTH_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_ACCESS_TOKEN): cv.string,
+        vol.Required(CONF_MAC): cv.string,
+    }
+)
 
 
-async def validate_auth(access_token: str, hass: core.HomeAssistant) -> None:
+async def validate_auth(access_token: str, hass: core.HomeAssistant):
     """Validates a MyGregor access token.
 
     Raises a ValueError if the auth token is invalid.
@@ -36,25 +43,63 @@ async def validate_auth(access_token: str, hass: core.HomeAssistant) -> None:
     except UnauthorizedException as err:
         raise ValueError from err
 
+    return hub
+
+
+async def validate_device(mac: str, hub: MyGregorApi, hass: core.HomeAssistant):
+    """Validate user's device MAC address.
+
+    Raises a ValueError if the device is not available."""
+    found = None
+    devices = await hass.async_add_executor_job(hub.get_devices)
+    if devices is None:
+        raise ValueError("No devices found")
+    for device in devices:
+        if device.mac == mac:
+            found = device
+            break
+    if found is None:
+        raise ValueError("Device not found")
+
+    return found
+
 
 class MyGregorHassConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """MyGregor Hass config flow."""
 
-    data: Optional[Dict[str, Any]]
+    data: dict[str, Any] = {}
 
-    async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None):
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
         """Invoked when a user initiates a flow via the user interface."""
-        errors: Dict[str, str] = {}
+        errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                await validate_auth(user_input[CONF_ACCESS_TOKEN], self.hass)
+                hub = await validate_auth(user_input[CONF_ACCESS_TOKEN], self.hass)
             except ValueError:
                 errors["base"] = "auth"
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Unexpected exception")
+                errors["base"] = "unknown"
+            else:
+                await self.async_set_unique_id(user_input[CONF_MAC])
+                self._abort_if_unique_id_configured({CONF_MAC: user_input[CONF_MAC]})
+                try:
+                    device = await validate_device(user_input[CONF_MAC], hub, self.hass)
+                except ValueError:
+                    errors["base"] = "unknown_device"
+
             if not errors:
                 # Input is valid, set data.
-                self.data = user_input
-                # User is done adding repos, create the config entry.
-                return self.async_create_entry(title="MyGregor", data=self.data)
+                # self.data = user_input
+                return self.async_create_entry(
+                    title=device.name,
+                    data={
+                        **user_input,
+                        "device_id": device.unique_id,
+                    },
+                )
 
         return self.async_show_form(
             step_id="user", data_schema=AUTH_SCHEMA, errors=errors

@@ -24,8 +24,13 @@ async def async_setup_entry(
     api = MyGregorApi()
     api.set_access_token(entry.data[CONF_ACCESS_TOKEN])
     _LOGGER.debug("Setting up online MyGregor device")
-    api_devices = await hass.async_add_executor_job(api.get_devices, True, True)
-    hass.data[DOMAIN]["registry"][entry.entry_id] = MyGregorRegistry(api, api_devices)
+    api_device = await hass.async_add_executor_job(
+        api.get_device, entry.data["device_id"], True, True
+    )
+    hass.data[DOMAIN]["registry"][entry.entry_id] = MyGregorRegistry(
+        api,
+        api_device,
+    )
 
     # Forward the setup to the cover (driver) platform.
     hass.async_create_task(
